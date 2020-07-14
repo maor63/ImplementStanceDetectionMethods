@@ -3,41 +3,40 @@ import re
 import gensim.downloader
 import tensorflow as tf
 from sklearn.preprocessing import LabelEncoder
-from tensorflow.keras import *
-from tensorflow.keras.layers import *
 import pandas as pd
 import numpy as np
 from sklearn.metrics import *
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.utils import to_categorical
 from tensorflow import expand_dims
+from tensorflow.keras import regularizers
 
 
 def Conv2DWithMaxPool2D(x, filter=3, embedding_size=300):
-    filters = Conv2D(100, filter, activation='relu', kernel_regularizer=0.000001)(x)
-    filters = GlobalMaxPool2D()(filters)
-    # filters = MaxPooling2D(pool_size=(2, 2))(filters)
-    filters = Flatten()(filters)
+    filters = tf.keras.layers.Conv2D(100, filter, activation='relu', kernel_regularizer=regularizers.l2(1e-6))(x)
+    # filters = GlobalMaxPool2D()(filters)
+    filters = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(filters)
+    filters = tf.keras.layers.Flatten()(filters)
     return filters
 
 
 def create_model(sentence_max_len, index2word, embedding_matrix):
-    input = Input(shape=(sentence_max_len,), dtype='int32', name='input_vector')
-    x = Embedding(len(index2word), 300, weights=[embedding_matrix], input_length=sentence_max_len, trainable=False)(
+    input = tf.keras.layers.Input(shape=(sentence_max_len,), dtype='int32', name='input_vector')
+    x = tf.keras.layers.Embedding(len(index2word), 300, weights=[embedding_matrix], input_length=sentence_max_len, trainable=False)(
         input)
     x = expand_dims(x, axis=-1)
     filter3 = Conv2DWithMaxPool2D(x, 3, 300)
     filter4 = Conv2DWithMaxPool2D(x, 4, 300)
     filter5 = Conv2DWithMaxPool2D(x, 5, 300)
 
-    x = concatenate([filter3, filter4, filter5])
+    x = tf.keras.layers.concatenate([filter3, filter4, filter5])
 
-    x = Dropout(0.5)(x)
-    x = Dense(100, activation='relu', kernel_regularizer=0.000001)(x)
-    x = Dropout(0.5)(x)
-    output = Dense(3, activation='softmax', name='output_vector')(x)
+    x = tf.keras.layers.Dropout(0.5)(x)
+    x = tf.keras.layers.Dense(100, activation='relu', kernel_regularizer=regularizers.l2(1e-6))(x)
+    x = tf.keras.layers.Dropout(0.5)(x)
+    output = tf.keras.layers.Dense(3, activation='softmax', name='output_vector')(x)
 
-    model = Model(inputs=[input], outputs=[output])
+    model = tf.keras.Model(inputs=[input], outputs=[output])
     return model
 
 def convet_to_word_indexs(splited_texts):
@@ -84,6 +83,8 @@ vocab_size = len(index2word)
 encoded_corpus_pad = convet_to_word_indexs(splited_texts)
 
 model = create_model(sentence_max_len, index2word, embedding_matrix)
+print(model.summary())
+# exit(0)
 
 label_encoder = LabelEncoder()
 y_true = to_categorical(label_encoder.fit_transform(df['Stance']))
@@ -92,10 +93,10 @@ y_true = to_categorical(label_encoder.fit_transform(df['Stance']))
 #     learning_rate=0.01,
 # )
 opt = tf.keras.optimizers.Adadelta(
-    learning_rate=0.01, rho=0.95, epsilon=1e-06, name="Adadelta", **kwargs
+    learning_rate=0.5, rho=0.95, epsilon=1e-06, name="Adadelta",
 )
 model.compile(loss={'output_vector': 'categorical_crossentropy'}, optimizer=opt, metrics=['accuracy'])
-model.fit(encoded_corpus_pad, y_true, epochs=25, batch_size=64, verbose=2)
+model.fit(encoded_corpus_pad, y_true, epochs=25, batch_size=50, verbose=2)
 pass
 
 test_encoded_corpus_pad = convet_to_word_indexs(test_df['Tweet'].apply(clean_str).str.split())
