@@ -1,5 +1,5 @@
 import re
-
+import tensorflow.keras.backend as K
 import gensim.downloader
 import tensorflow as tf
 from sklearn.preprocessing import LabelEncoder
@@ -12,17 +12,46 @@ from tensorflow import expand_dims
 from tensorflow.keras import regularizers
 
 
+def gaussian_nll(ytrue, ypreds):
+    """Keras implmementation of multivariate Gaussian negative loglikelihood loss function.
+    This implementation implies diagonal covariance matrix.
+
+    Parameters
+    ----------
+    ytrue: tf.tensor of shape [n_samples, n_dims]
+        ground truth values
+    ypreds: tf.tensor of shape [n_samples, n_dims*2]
+        predicted mu and logsigma values (e.g. by your neural network)
+
+    Returns
+    -------
+    neg_log_likelihood: float
+        negative loglikelihood averaged over samples
+
+    This loss can then be used as a target loss for any keras model, e.g.:
+        model.compile(loss=gaussian_nll, optimizer='Adam')
+
+    """
+    print(ytrue.shape, ypreds.shape)
+
+    y = K.argmax(ytrue, axis=1)
+
+    log_likelihood = K.log(ypreds[:, y])
+
+    return K.mean(-log_likelihood)
+
+
 def Conv2DWithMaxPool2D(x, filter=3, embedding_size=300):
     filters = tf.keras.layers.Conv2D(100, filter, activation='relu', kernel_regularizer=regularizers.l2(1e-6))(x)
-    # filters = GlobalMaxPool2D()(filters)
-    filters = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(filters)
-    filters = tf.keras.layers.Flatten()(filters)
+    filters = tf.keras.layers.GlobalMaxPool2D()(filters)
+    # filters = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(filters)
+    # filters = tf.keras.layers.Flatten()(filters)
     return filters
 
 
-def create_model(sentence_max_len, index2word, embedding_matrix):
+def create_model(sentence_max_len, vocab_size, embedding_matrix):
     input = tf.keras.layers.Input(shape=(sentence_max_len,), dtype='int32', name='input_vector')
-    x = tf.keras.layers.Embedding(len(index2word), 300, weights=[embedding_matrix], input_length=sentence_max_len, trainable=False)(
+    x = tf.keras.layers.Embedding(vocab_size, 300, weights=[embedding_matrix], input_length=sentence_max_len, trainable=True)(
         input)
     x = expand_dims(x, axis=-1)
     filter3 = Conv2DWithMaxPool2D(x, 3, 300)
@@ -33,7 +62,7 @@ def create_model(sentence_max_len, index2word, embedding_matrix):
 
     x = tf.keras.layers.Dropout(0.5)(x)
     x = tf.keras.layers.Dense(100, activation='relu', kernel_regularizer=regularizers.l2(1e-6))(x)
-    x = tf.keras.layers.Dropout(0.5)(x)
+    # x = tf.keras.layers.Dropout(0.5)(x)
     output = tf.keras.layers.Dense(3, activation='softmax', name='output_vector')(x)
 
     model = tf.keras.Model(inputs=[input], outputs=[output])
@@ -82,18 +111,20 @@ vocab_size = len(index2word)
 
 encoded_corpus_pad = convet_to_word_indexs(splited_texts)
 
-model = create_model(sentence_max_len, index2word, embedding_matrix)
+model = create_model(sentence_max_len, vocab_size, embedding_matrix)
 print(model.summary())
 # exit(0)
 
 label_encoder = LabelEncoder()
 y_true = to_categorical(label_encoder.fit_transform(df['Stance']))
+print(label_encoder.classes_)
+print(label_encoder.transform(label_encoder.classes_))
 
 # opt = tf.keras.optimizers.Adam(
 #     learning_rate=0.01,
 # )
 opt = tf.keras.optimizers.Adadelta(
-    learning_rate=0.5, rho=0.95, epsilon=1e-06, name="Adadelta",
+    learning_rate=0.01, rho=0.95, epsilon=1e-06, name="Adadelta",
 )
 model.compile(loss={'output_vector': 'categorical_crossentropy'}, optimizer=opt, metrics=['accuracy'])
 model.fit(encoded_corpus_pad, y_true, epochs=25, batch_size=50, verbose=2)
