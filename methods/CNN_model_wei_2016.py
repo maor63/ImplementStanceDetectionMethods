@@ -51,8 +51,8 @@ def Conv2DWithMaxPool2D(x, filter=3, embedding_size=300):
 
 def create_model(sentence_max_len, vocab_size, embedding_matrix):
     input = tf.keras.layers.Input(shape=(sentence_max_len,), dtype='int32', name='input_vector')
-    x = tf.keras.layers.Embedding(vocab_size, 300, weights=[embedding_matrix], input_length=sentence_max_len, trainable=True)(
-        input)
+    x = tf.keras.layers.Embedding(vocab_size, 300, weights=[embedding_matrix], input_length=sentence_max_len, trainable=True)(input)
+    # x = tf.keras.layers.Embedding(vocab_size, 300, input_length=sentence_max_len, trainable=True)(input)
     x = expand_dims(x, axis=-1)
     filter3 = Conv2DWithMaxPool2D(x, 3, 300)
     filter4 = Conv2DWithMaxPool2D(x, 4, 300)
@@ -60,9 +60,9 @@ def create_model(sentence_max_len, vocab_size, embedding_matrix):
 
     x = tf.keras.layers.concatenate([filter3, filter4, filter5])
 
-    x = tf.keras.layers.Dropout(0.5)(x)
-    x = tf.keras.layers.Dense(100, activation='relu', kernel_regularizer=regularizers.l2(1e-6))(x)
     # x = tf.keras.layers.Dropout(0.5)(x)
+    x = tf.keras.layers.Dense(100, activation='relu', kernel_regularizer=regularizers.l2(1e-6))(x)
+    x = tf.keras.layers.Dropout(0.5)(x)
     output = tf.keras.layers.Dense(3, activation='softmax', name='output_vector')(x)
 
     model = tf.keras.Model(inputs=[input], outputs=[output])
@@ -96,6 +96,8 @@ def clean_str(string, TREC=False):
 df = pd.read_csv('data/semeval2016-task6-trainingdata.csv', sep='\t', encoding='ascii')
 test_df = pd.read_csv('data/SemEval2016-Task6-subtaskA-testdata-gold.txt', sep='\t', encoding='ascii')
 
+print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+
 print(df['Stance'].value_counts())
 
 wv = gensim.downloader.load('word2vec-google-news-300')
@@ -120,14 +122,12 @@ y_true = to_categorical(label_encoder.fit_transform(df['Stance']))
 print(label_encoder.classes_)
 print(label_encoder.transform(label_encoder.classes_))
 
-# opt = tf.keras.optimizers.Adam(
-#     learning_rate=0.01,
-# )
+# opt = tf.keras.optimizers.Adam()
 opt = tf.keras.optimizers.Adadelta(
-    learning_rate=0.01, rho=0.95, epsilon=1e-06, name="Adadelta",
+    learning_rate=0.5, rho=0.95, epsilon=1e-06, name="Adadelta",
 )
-model.compile(loss={'output_vector': 'categorical_crossentropy'}, optimizer=opt, metrics=['accuracy'])
-model.fit(encoded_corpus_pad, y_true, epochs=25, batch_size=50, verbose=2)
+model.compile(loss={'output_vector': gaussian_nll}, optimizer=opt, metrics=['accuracy'])
+model.fit(encoded_corpus_pad, y_true, epochs=25, batch_size=50, verbose=2, validation_split=0.1)
 pass
 
 test_encoded_corpus_pad = convet_to_word_indexs(test_df['Tweet'].apply(clean_str).str.split())
